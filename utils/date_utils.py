@@ -1,8 +1,10 @@
 """
-Date helpers
+utils/date_utils.py – Date helpers
+====================================
 """
 
 from datetime import date
+
 
 def next_month_str() -> str:
     """Return YYYY-MM string for the month after today."""

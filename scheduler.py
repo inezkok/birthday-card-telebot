@@ -1,11 +1,17 @@
 """
-Automates monthly birthday reminders
+scheduler.py – Automated monthly birthday reminders
+=====================================================
+On the 3rd-last day of each month at REMINDER_HOUR (UTC), the bot sends
+a message to every registered user listing the next month's birthday babies
+and asking them to write their wishes.
 """
 
 import calendar
 import logging
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, timezone
 
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from telegram.ext import Application
 
 import database as db
@@ -14,12 +20,17 @@ from utils.date_utils import next_month_str
 
 logger = logging.getLogger(__name__)
 
+# Module-level scheduler instance
+_scheduler = None
+
+
 def _third_last_day_of_month(year: int, month: int) -> int:
     """Return the calendar day that is REMINDER_DAYS_BEFORE_END from month end."""
     last_day = calendar.monthrange(year, month)[1]
     return last_day - (REMINDER_DAYS_BEFORE_END - 1)
 
-async def send_monthly_reminder(context) -> None:
+
+async def send_monthly_reminder(bot) -> None:
     """
     Fire this on the 3rd-last day of each month.
     Checks whether *today* is indeed the correct trigger day, then notifies
@@ -29,7 +40,7 @@ async def send_monthly_reminder(context) -> None:
     trigger_day = _third_last_day_of_month(today.year, today.month)
 
     if today.day != trigger_day:
-        # Safety guard — job fires daily at REMINDER_HOUR;
+        # Safety guard — scheduler fires daily at REMINDER_HOUR;
         # we only act on the right day.
         return
 
@@ -57,7 +68,7 @@ async def send_monthly_reminder(context) -> None:
     sent = 0
     for user in all_users:
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=user["telegram_id"],
                 text=message,
                 parse_mode="Markdown",
@@ -68,14 +79,26 @@ async def send_monthly_reminder(context) -> None:
 
     logger.info("Monthly reminder sent to %d/%d users for %s.", sent, len(all_users), target)
 
+
 def setup_scheduler(app: Application) -> None:
-    """Attach a job to the Application's job_queue that fires the reminder daily."""
+    """Attach a BackgroundScheduler to the Application that fires the reminder daily."""
+    global _scheduler
+    
+    # Use BackgroundScheduler instead of AsyncIOScheduler
+    # This runs in a separate thread and works reliably with async code
+    _scheduler = BackgroundScheduler(timezone="UTC")
+
     # Fire every day at REMINDER_HOUR — the handler itself checks the day.
-    app.job_queue.run_daily(
+    _scheduler.add_job(
         send_monthly_reminder,
-        time=time(hour=REMINDER_HOUR, minute=0, tzinfo=timezone.utc),
-        name="monthly_reminder",
+        trigger=CronTrigger(hour=REMINDER_HOUR, minute=0, timezone="UTC"),
+        args=[app.bot],
+        id="monthly_reminder",
+        replace_existing=True,
     )
+
+    # Start the scheduler immediately (it runs in a daemon thread)
+    _scheduler.start()
     logger.info(
         "Scheduler started — reminder fires daily at %02d:00 UTC, "
         "active on the %d-days-before-end-of-month trigger.",

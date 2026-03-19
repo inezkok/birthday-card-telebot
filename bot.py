@@ -1,5 +1,7 @@
 """
 Birthday Wishes Bot - Main Entry Point
+======================================
+Run this file to start the bot: python bot.py
 """
 
 import logging
@@ -20,13 +22,14 @@ from scheduler import setup_scheduler
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
     level=logging.INFO,
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler("bot.log"),
     ],
 )
+
 logger = logging.getLogger(__name__)
 
 
