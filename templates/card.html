@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<!--
+  templates/card.html  –  Birthday card template
+  ================================================
+  Placeholders (filled in by utils/card_generator.py):
+    {name}          – birthday person's display name
+    {bday_display}  – birthday as "13 Apr"
+    {month_str}     – target month as "April 2025"
+    {wish_count}    – total number of wishes on this card
+    {wish_word}     – "wish" or "wishes" (pluralised in Python)
+    {wish_cards}    – rendered HTML blocks, one per wish (see _wish_cards_html)
+    {confetti_js}   – inline JS for the confetti animation
+
+  To customise the look:
+    - Colours   → edit the :root {{ }} CSS variables near the top
+    - Fonts     → swap the Google Fonts @import URL and the font-family values
+    - Card size → edit max-width in .wishes-section
+    - Animation → edit the @keyframes blocks at the bottom of <style>
+    - Confetti  → edit COLOURS in utils/card_generator.py
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Happy Birthday, {name}! 🎂</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500&display=swap"
+        rel="stylesheet" />
+
+  <style>
+    /* ── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+
+    /* ── Design tokens ──────────────────────────────────────────────────── */
+    /* Edit these to retheme the entire card. */
+    :root {{
+      --gold:       #F5C842;
+      --rose:       #FF6B9D;
+      --violet:     #C77DFF;
+      --teal:       #06D6A0;
+
+      --bg:         #0D0D1A;   /* page background          */
+      --surface:    #16162A;   /* unused, kept for future  */
+      --card-bg:    #1E1E38;   /* individual wish card bg  */
+      --text:       #F0EEF8;   /* primary text             */
+      --muted:      #8885A8;   /* secondary / label text   */
+      --border:     rgba(199, 125, 255, 0.18);
+    }}
+
+    body {{
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }}
+
+    /* ── Hero section ───────────────────────────────────────────────────── */
+    .hero {{
+      position: relative;
+      text-align: center;
+      padding: 80px 24px 60px;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%,
+                        rgba(199, 125, 255, 0.22) 0%, transparent 70%),
+        radial-gradient(ellipse 60% 40% at 80% 80%,
+                        rgba(6, 214, 160, 0.12)   0%, transparent 60%),
+        var(--bg);
+      border-bottom: 1px solid var(--border);
+    }}
+
+    /* Pill badge showing the target month */
+    .hero-month {{
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: 500;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--violet);
+      background: rgba(199, 125, 255, 0.12);
+      border: 1px solid rgba(199, 125, 255, 0.3);
+      border-radius: 100px;
+      padding: 6px 18px;
+      margin-bottom: 28px;
+    }}
+
+    /* Large gradient "Happy Birthday!" headline */
+    .hero-title {{
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.6rem, 8vw, 5.5rem);
+      font-weight: 900;
+      line-height: 1.05;
+      background: linear-gradient(135deg,
+                    var(--gold)   0%,
+                    var(--rose)  50%,
+                    var(--violet) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 18px;
+      animation: fadeUp 0.8s ease both;
+    }}
+
+    /* Birthday person's name */
+    .hero-name {{
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(1.5rem, 5vw, 2.8rem);
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      animation: fadeUp 0.8s 0.15s ease both;
+    }}
+
+    .hero-date {{
+      font-size: 1rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      animation: fadeUp 0.8s 0.25s ease both;
+    }}
+
+    /* "N wishes from your people" pill */
+    .hero-count {{
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 30px;
+      font-size: 0.9rem;
+      color: var(--gold);
+      background: rgba(245, 200, 66, 0.08);
+      border: 1px solid rgba(245, 200, 66, 0.25);
+      border-radius: 100px;
+      padding: 8px 20px;
+      animation: fadeUp 0.8s 0.35s ease both;
+    }}
+
+    /* ── Wishes section ─────────────────────────────────────────────────── */
+    .wishes-section {{
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }}
+
+    /* Small "MESSAGES FOR YOU ───────" label */
+    .section-label {{
+      font-size: 0.72rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+    .section-label::after {{
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }}
+
+    /* Individual wish card */
+    .wish-card {{
+      display: flex;
+      gap: 20px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 20px;
+      transition: border-color 0.2s, transform 0.2s;
+      animation: slideIn 0.5s ease both;
+    }}
+    .wish-card:hover {{
+      border-color: rgba(199, 125, 255, 0.4);
+      transform: translateY(-2px);
+    }}
+
+    /* Circular avatar showing first letter of wisher's name */
+    .wish-avatar {{
+      flex-shrink: 0;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--violet), var(--rose));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Playfair Display', serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #fff;
+    }}
+
+    .wish-body   {{ flex: 1; min-width: 0; }}
+    .wish-author {{ font-weight: 500; margin-bottom: 8px; color: var(--text); }}
+
+    .wish-text {{
+      line-height: 1.7;
+      color: #C8C5E0;
+      font-size: 0.97rem;
+    }}
+
+    /* Shown when no wishes have been collected yet */
+    .no-wishes {{
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--muted);
+      border: 1px dashed var(--border);
+      border-radius: 16px;
+    }}
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    .footer {{
+      text-align: center;
+      padding: 32px 24px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }}
+
+    /* ── Confetti canvas (fixed overlay, pointer-events off) ────────────── */
+    #confetti-canvas {{
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 999;
+    }}
+
+    /* ── Keyframe animations ────────────────────────────────────────────── */
+    @keyframes fadeUp {{
+      from {{ opacity: 0; transform: translateY(20px); }}
+      to   {{ opacity: 1; transform: translateY(0); }}
+    }}
+
+    @keyframes slideIn {{
+      from {{ opacity: 0; transform: translateX(-16px); }}
+      to   {{ opacity: 1; transform: translateX(0); }}
+    }}
+  </style>
+</head>
+<body>
+
+<canvas id="confetti-canvas"></canvas>
+
+<!-- ── Hero ──────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero-month">🗓️ {month_str}</div>
+  <h1 class="hero-title">Happy Birthday!</h1>
+  <div class="hero-name">🎂 {name}</div>
+  <div class="hero-date">Birthday: {bday_display}</div>
+  <div class="hero-count">💌 {wish_count} {wish_word} from your people</div>
+</section>
+
+<!-- ── Wishes ─────────────────────────────────────────────────────────────── -->
+<section class="wishes-section">
+  <div class="section-label">Messages for you</div>
+  {wish_cards}
+</section>
+
+<!-- ── Footer ────────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  Generated with 💜 by Birthday Wishes Bot
+</footer>
+
+<!-- ── Confetti script ────────────────────────────────────────────────────── -->
+<script>
+{confetti_js}
+launchConfetti();
+</script>
+
+</body>
+</html>
