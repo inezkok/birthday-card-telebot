@@ -10,13 +10,25 @@ This file only handles:
 
 To customise the card's look, edit templates/card.html.
 To change confetti colours, edit CONFETTI_COLOURS below.
+
+Error Handling
+--------------
+generate_card() may raise exceptions if:
+  - Template file is missing or unreadable
+  - File system errors occur when writing temp file
+  - Data validation fails
+
+Handlers should catch these and provide user feedback via send_error_message().
 """
 
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 from utils.date_utils import month_label
+
+logger = logging.getLogger(__name__)
 
 # ── Confetti palette ──────────────────────────────────────────────────────────
 # These colours are injected into the JS in templates/card.html.
@@ -41,45 +53,89 @@ def generate_card(person, wishes, target_month: str) -> str:
     Returns
     -------
     Absolute path to the written temp file.
+    
+    Raises
+    ------
+    FileNotFoundError : if template file cannot be read
+    IOError : if temp file cannot be written
+    ValueError : if data is invalid
     """
-    name         = person["name"]
-    bday_display = _format_birthday(person["birthday"])  # e.g. "13 Apr"
-    month_str    = month_label(target_month)              # e.g. "April 2025"
-    wish_count   = len(wishes)
-    wish_word    = "wish" if wish_count == 1 else "wishes"
+    try:
+        name = person.get("name", "Birthday Person")
+        if not name:
+            raise ValueError("Person name is required")
+            
+        bday_display = _format_birthday(person.get("birthday", "1900-01-01"))
+        month_str = month_label(target_month)
+        wish_count = len(wishes) if wishes else 0
+        wish_word = "wish" if wish_count == 1 else "wishes"
 
-    template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+        try:
+            template = _TEMPLATE_PATH.read_text(encoding="utf-8")
+        except FileNotFoundError as e:
+            logger.error(f"Template file not found: {_TEMPLATE_PATH}")
+            raise
+        except IOError as e:
+            logger.error(f"Failed to read template file: {e}")
+            raise
 
-    html = template.format(
-        name         = name,
-        bday_display = bday_display,
-        month_str    = month_str,
-        wish_count   = wish_count,
-        wish_word    = wish_word,
-        wish_cards   = _wish_cards_html(wishes),
-        confetti_js  = _confetti_js(),
-    )
+        try:
+            html = template.format(
+                name=name,
+                bday_display=bday_display,
+                month_str=month_str,
+                wish_count=wish_count,
+                wish_word=wish_word,
+                wish_cards=_wish_cards_html(wishes),
+                confetti_js=_confetti_js(),
+            )
+        except KeyError as e:
+            logger.error(f"Template formatting error - missing key: {e}")
+            raise ValueError(f"Invalid template structure: {e}")
+        except Exception as e:
+            logger.error(f"Error formatting template: {e}")
+            raise
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode     = "w",
-        suffix   = ".html",
-        prefix   = f"bday_card_{name.replace(' ', '_')}_",
-        delete   = False,
-        encoding = "utf-8",
-    )
-    tmp.write(html)
-    tmp.close()
-    return tmp.name
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".html",
+                prefix=f"bday_card_{name.replace(' ', '_')}_",
+                delete=False,
+                encoding="utf-8",
+            )
+            tmp.write(html)
+            tmp.close()
+            logger.info(f"Generated birthday card: {tmp.name}")
+            return tmp.name
+        except IOError as e:
+            logger.error(f"Failed to write temporary card file: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error while creating card file: {e}")
+            raise
+    except Exception as e:
+        logger.exception("Error in generate_card")
+        raise
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
 def _format_birthday(birthday_iso: str) -> str:
     """Convert 'YYYY-MM-DD' to a short display string like '13 Apr'."""
-    _month_abbr = ["Jan","Feb","Mar","Apr","May","Jun",
-                   "Jul","Aug","Sep","Oct","Nov","Dec"]
-    parts = birthday_iso.split("-")
-    return f"{int(parts[2])} {_month_abbr[int(parts[1]) - 1]}"
+    try:
+        _month_abbr = ["Jan","Feb","Mar","Apr","May","Jun",
+                       "Jul","Aug","Sep","Oct","Nov","Dec"]
+        parts = birthday_iso.split("-")
+        if len(parts) != 3:
+            raise ValueError(f"Invalid birthday format: {birthday_iso}")
+        month_idx = int(parts[1]) - 1
+        if month_idx < 0 or month_idx >= 12:
+            raise ValueError(f"Invalid month: {parts[1]}")
+        return f"{int(parts[2])} {_month_abbr[month_idx]}"
+    except Exception as e:
+        logger.warning(f"Error formatting birthday {birthday_iso}: {e}")
+        return "Date TBD"
 
 
 def _wish_cards_html(wishes) -> str:
@@ -93,9 +149,13 @@ def _wish_cards_html(wishes) -> str:
 
     blocks = []
     for w in wishes:
-        name    = w["wisher_name"]
-        message = w["message"].replace("\n", "<br>")
-        blocks.append(f"""
+        try:
+            name = w.get("wisher_name", "Anonymous")
+            message = w.get("message", "")
+            if not message:
+                continue
+            message = message.replace("\n", "<br>")
+            blocks.append(f"""
         <div class="wish-card">
           <div class="wish-avatar">{name[0].upper()}</div>
           <div class="wish-body">
@@ -103,14 +163,22 @@ def _wish_cards_html(wishes) -> str:
             <div class="wish-text">{message}</div>
           </div>
         </div>""")
+        except Exception as e:
+            logger.warning(f"Error processing wish card: {e}")
+            continue
 
-    return "\n".join(blocks)
+    return "\n".join(blocks) if blocks else (
+        '<div class="no-wishes">'
+        '<p>No wishes could be rendered.</p>'
+        '</div>'
+    )
 
 
 def _confetti_js() -> str:
     """Return the self-contained confetti animation as a JS string."""
-    colours = CONFETTI_COLOURS
-    return f"""
+    try:
+        colours = CONFETTI_COLOURS
+        return f"""
 const COLOURS = {colours};
 
 function launchConfetti() {{
@@ -160,3 +228,6 @@ function launchConfetti() {{
   draw();
 }}
 """
+    except Exception as e:
+        logger.error(f"Error generating confetti JS: {e}")
+        return ""

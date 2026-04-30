@@ -6,6 +6,7 @@ Run this file to start the bot: python bot.py
 
 import logging
 import asyncio
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -13,7 +14,9 @@ from telegram.ext import (
     MessageHandler,
     filters,
     ConversationHandler,
+    ContextTypes,
 )
+from telegram.error import TelegramError
 
 from config import BOT_TOKEN
 from database import init_db
@@ -33,14 +36,46 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Log the error and send a message to the user if possible.
+    This is the global error handler that catches any unhandled exceptions.
+    """
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    
+    # Try to send an error message to the user
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ An error occurred while processing your request. "
+                "Our team has been notified. Please try again later."
+            )
+        elif update and update.callback_query:
+            await update.callback_query.answer(
+                "⚠️ An error occurred. Please try again.",
+                show_alert=False
+            )
+    except Exception as e:
+        logger.error(f"Failed to send error message to user: {e}")
+
+
 def main() -> None:
     """Build and run the bot."""
     # Initialise the SQLite database (creates tables if not present)
-    init_db()
-    logger.info("Database initialised.")
+    try:
+        init_db()
+        logger.info("Database initialised.")
+    except Exception as e:
+        logger.error(f"Failed to initialise database: {e}")
+        logger.error("Exiting bot due to database initialization failure.")
+        return
 
     # Build the Application
-    app = Application.builder().token(BOT_TOKEN).build()
+    try:
+        app = Application.builder().token(BOT_TOKEN).build()
+    except Exception as e:
+        logger.error(f"Failed to create Application: {e}")
+        return
 
     # ── Conversation handler: /write ─────────────────────────────────────────
     write_conv = ConversationHandler(
@@ -93,11 +128,23 @@ def main() -> None:
     # ── Inline button callbacks (outside conversation flows) ─────────────────
     app.add_handler(CallbackQueryHandler(conversation_handlers.handle_stray_callback))
 
+    # ── Error handler ────────────────────────────────────────────────────────
+    app.add_error_handler(error_handler)
+
     # ── Scheduler (monthly reminders) ───────────────────────────────────────
-    setup_scheduler(app)
-    logger.info("Scheduler set up.")
+    try:
+        setup_scheduler(app)
+        logger.info("Scheduler set up.")
+    except Exception as e:
+        logger.error(f"Failed to set up scheduler: {e}")
+        logger.warning("Bot will run without scheduled reminders.")
 
     logger.info("Bot is polling…")
+    try:
+        app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.error(f"Error while polling: {e}")
+        logger.error("Bot stopped due to an error.")
     app.run_polling(drop_pending_updates=True)
 
 

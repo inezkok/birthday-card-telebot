@@ -26,6 +26,8 @@ A Telegram bot that collects birthday wishes from your group and compiles them i
 - **Admin tools** — bump stragglers, collate cards, manage users
 - **Lightweight SQLite database** — no external DB server needed
 - **Configurable** — all key settings live in a single `.env` file
+- **Robust error handling** — the bot never crashes; all errors are logged and users receive helpful feedback
+- **Production-ready** — comprehensive error recovery for database, API, and file system issues
 
 ---
 
@@ -57,25 +59,31 @@ Admin runs /bump       →  Bot DMs anyone who hasn't written yet
 birthday-card-telebot/
 ├── bot.py                  # Entry point — run this to start the bot
 ├── config.py               # Reads settings from environment / .env
-├── database.py             # All SQLite operations (single source of truth)
-├── scheduler.py            # APScheduler — fires monthly reminders
+├── database.py             # All SQLite operations (with error handling)
+├── scheduler.py            # APScheduler — fires monthly reminders (fault-tolerant)
 ├── seed_admin.py           # One-time setup: create the first admin user
 ├── requirements.txt        # Python dependencies
 ├── .env.example            # Template for your secrets
+├── ERROR_HANDLING.md       # Comprehensive error handling documentation
 ├── .gitignore
 │
 ├── handlers/
-│   ├── user_handlers.py        # /start, /help
-│   ├── admin_handlers.py       # /bump, /clear
-│   └── conversation_handlers.py # /write, /collate, /admin, /adduser, /removeuser
+│   ├── user_handlers.py        # /start, /help (with error recovery)
+│   ├── admin_handlers.py       # /bump, /clear (graceful error handling)
+│   └── conversation_handlers.py # /write, /collate, /admin, /adduser, /removeuser (state-safe)
 │
 └── utils/
     ├── auth.py             # @admin_only / @registered_only decorators
-    ├── card_generator.py   # Builds the HTML birthday card
-    └── date_utils.py       # Month helpers
+    ├── card_generator.py   # Builds the HTML birthday card (defensive programming)
+    ├── date_utils.py       # Month helpers
+    └── error_handler.py    # Centralized error handling & user feedback utilities
 ```
 
-**Key design principle:** each file has one clear responsibility. You'll always know where to look.
+**Key design principles:** 
+- Each file has one clear responsibility — you'll always know where to look
+- All errors are caught, logged, and handled gracefully — the bot never crashes
+- Users see helpful, non-technical error messages
+- For detailed error handling info, see [ERROR_HANDLING.md](ERROR_HANDLING.md)
 
 ---
 
@@ -296,6 +304,8 @@ sudo systemctl status birthdaybot   # should say "active (running)"
 
 The bot will now auto-start on reboot and restart if it crashes.
 
+Note: The bot is designed to handle errors gracefully and continue running. If it does stop, systemd will automatically restart it.
+
 ---
 
 ### Option D — Fly.io
@@ -370,10 +380,27 @@ Tell them to run `/write` again — submitting again will overwrite their previo
 |---|---|
 | `ModuleNotFoundError` | Run `pip install -r requirements.txt` in your activated venv |
 | `Invalid token` | Double-check `BOT_TOKEN` in your `.env` file |
-| Bot doesn't respond | Make sure `python bot.py` is running |
+| Bot doesn't respond | Make sure `python bot.py` is running; check `bot.log` for errors |
 | User can't use `/write` | They haven't been added via `/adduser` + sent `/start` |
 | Reminder never fires | Confirm the bot was running on the trigger day; check `REMINDER_HOUR` is UTC |
 | Card shows "No wishes yet" | Nobody has submitted wishes yet; use `/bump` to remind them |
+| Error messages in bot | Check `bot.log` for details; these are logged but non-fatal |
+| Database errors | The bot automatically handles these; see [ERROR_HANDLING.md](ERROR_HANDLING.md) for recovery info |
+
+---
+
+---
+
+## Error Handling & Reliability
+
+This bot is built with production-grade error handling:
+
+- **Never crashes** — All errors are caught and logged
+- **User feedback** — People see helpful error messages (no Python tracebacks)
+- **Automatic recovery** — Database errors are rolled back automatically; failed reminders don't stop other operations
+- **Comprehensive logging** — All issues are logged to `bot.log` with full context for debugging
+
+For detailed information about error handling, recovery strategies, and monitoring, see [ERROR_HANDLING.md](ERROR_HANDLING.md).
 
 ---
 
